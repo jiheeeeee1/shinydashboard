@@ -1,0 +1,258 @@
+library(c3)
+library(DT)
+library(bitops)
+library(showtextdb)
+library(shinydashboard)
+library(ggplot2)
+library(plotly)
+library(plyr)
+library(dplyr)
+library(tm)
+library(tidytext)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(wordcloud2)
+library(RColorBrewer)
+library(showtext)
+library(shinyWidgets)
+library(shinydashboardPlus)
+library(shiny)
+
+# Load data
+car <- read.csv("D:/codelab1/Car_sales.csv")
+car$Manufacturer1 <- car$Manufacturer
+CORPUS <- Corpus(VectorSource(car$Manufacturer1))
+DTM <- DocumentTermMatrix(CORPUS)
+DTM <- as.data.frame(as.matrix(DTM))
+car <- cbind(car, DTM)
+First_CAR <- c()
+for (i in 1:NROW(car$Manufacturer)) {
+  First_CAR[i] <- strsplit(as.character(car$Manufacturer[i]), ",")[[1]][1]
+}
+car$First_CAR <- First_CAR
+
+# Define UI
+ui <- dashboardPage(
+  dashboardHeader(title = "Dashboard Sample"),
+dashboardSidebar(
+    selectInput('Manufacturer', 'Manufacturer', 
+               choices = unique(car$First_CAR), selected = 'Acura'),
+    sliderInput("Horsepower", "min Rating:", 0.11, min = 0, max = 1, step = 0.01)
+  ),
+ dashboardBody(
+    fluidRow(
+      valueBoxOutput(
+        "numCars",
+        width = 3
+      ),
+      valueBoxOutput(
+        "numModels",
+        width = 3
+      ),
+      valueBoxOutput(
+        "avgFuelefficiency",
+        width = 3
+      ),
+      valueBoxOutput(
+        "avgFuelCapacity",
+        width = 3
+      )
+    ),
+  fluidRow(
+    column(
+      width = 6,
+      box(
+        title = "Horsepower Gauge",
+        height = "200px",
+        width = NULL,
+        c3Output("gauge_plot")
+      )
+    ),
+      column(
+        width = 6,
+        box(
+          title = "Engine Size Gauge",
+          height = "200px",
+          width = NULL,
+          c3Output("gauge_plot2")
+        )
+      )
+    ), 
+   fluidRow(
+      column(
+        width = 4,
+        box(
+          title = "Price in thousands",
+          height = "350px",
+          width = NULL,
+          plotlyOutput("price_plot")
+        )
+      ),
+      column(
+        width = 4,
+        box(
+          title = "Sales in thousands",
+          height = "350px",
+          width = NULL,
+          plotlyOutput("sales_plot")
+        )
+      ),
+      column(
+        width = 4,
+        box(
+          title = "Scatter",
+          height = "350px",
+          width = NULL,
+          plotlyOutput("scatter_plot")
+        )
+      )
+    ),
+    fluidRow(
+      column(
+        width = 12,
+        box(
+          title = "Wordcloud",
+          height = "500px",
+          width = NULL,
+          wordcloud2Output("wordcloud"),
+          style = "margin: 0 auto;"
+        )
+      )
+    ),
+    column(
+      width = 12,
+      box(
+        title = "Data table",
+        height = "400px",
+        width = NULL,
+        dataTableOutput("selected_car_table")
+      )
+    )
+  ),
+  dashboardFooter(
+    tags$div(
+      class = "main-footer text-center",
+      "Copyright © 2023"
+    )
+  ),
+  controlbar = NULL
+)
+
+# Define server logic
+server <- function(input, output) {
+
+   selectedcar <- reactive({
+    subset(car, First_CAR == input$Manufacturer)
+  })
+  
+output$numCars <- renderValueBox({
+  data <- filter(car, First_CAR == input$Manufacturer)
+
+  valueBox(
+    value = nrow(car),
+    subtitle = "Cars",
+    icon = icon("car"),
+    color = "light-blue"
+  )
+})
+
+  output$numModels <- renderValueBox({
+    valueBox(
+      value = nrow(selectedcar()),
+      subtitle = "Models",
+      icon = icon("money-bill"),
+      color = "green")
+  })
+  
+  output$avgFuelefficiency <- renderValueBox({
+    valueBox(
+      value = round(mean(selectedcar()$Fuel_efficiency, na.rm = TRUE), 2),
+      subtitle = "Fuel Efficiency",
+      icon = icon("tachometer-alt"),
+      color = "red"
+    )
+  })
+  
+  output$avgFuelCapacity <- renderValueBox({
+    valueBox(
+      value = round(mean(selectedcar()$Fuel_capacity, na.rm = TRUE), 2),
+      subtitle = "Fuel Capacity",
+      icon = icon("gas-pump"),
+      color = "purple"
+    )
+  })
+
+output$gauge_plot <- renderC3({
+data <- filter(car, First_CAR == input$Manufacturer & Horsepower >= input$Horsepower)
+  max_Horsepower <- max(data$Horsepower)
+c3(data = data, x = "Model", y = "Horsepower", type = "gauge", gauge = list(min = 0, max = max_Horsepower, width = 30),
+subtitle="Horepower",
+color="blue")
+})
+
+output$gauge_plot2 <- renderC3({
+  data <- filter(car, First_CAR == input$Manufacturer & Horsepower >= input$Horsepower)
+  max_Engine_size <- max(data$Engine_size)
+  c3(data = data, x = "Model", y = "Engine_size", type = "gauge", 
+     gauge = list(min = 0, max = max_Engine_size, width = 30, color = list(pattern = "# FF6347")))
+})
+
+output$price_plot <- renderPlotly({
+Model1 <- selectedcar() %>%
+group_by(Model) %>%
+dplyr::summarise(
+MEAN = mean(Price_in_thousands, na.rm = TRUE),
+MEDIAN = median(Price_in_thousands, na.rm = TRUE)
+)
+
+p <- ggplot(Model1) +
+geom_line(aes(x = Model, y = MEAN), group = 1 , col = 'grey') +
+geom_point(aes(x = Model, y = MEAN), col = 'grey') +
+geom_line(aes(x = Model, y = MEDIAN), group = 1 , col = 'red') +
+geom_point(aes(x = Model, y = MEDIAN), col = 'red') +
+xlab("Model") + ylab("Price_in_thousands") +
+theme_bw()
+ggplotly(p)
+})
+
+output$sales_plot <- renderPlotly({
+Model1 <- selectedcar() %>%
+group_by(Model) %>%
+dplyr::summarise(
+MEAN = mean(Sales_in_thousands, na.rm = TRUE),
+MEDIAN = median(Sales_in_thousands, na.rm = TRUE)
+)
+
+p <- ggplot(Model1) +
+geom_line(aes(x = Model, y = MEAN), group = 1 , col ="#CD5C5C") +
+geom_point(aes(x = Model, y = MEAN), col = "#CD5C5C") +
+geom_line(aes(x = Model, y = MEDIAN), group = 1 , col = "#87CEEB") +
+geom_point(aes(x = Model, y = MEDIAN), col = "#87CEEB") +
+xlab("Model") + ylab("Sales_in_thousands") +
+theme_bw()
+ggplotly(p)
+})
+
+output$scatter_plot <- renderPlotly({
+  p <- ggplot(data = selectedcar(), aes(x = Horsepower, y = Wheelbase, color = Engine_size, symbol = Engine_size)) +
+    geom_point()
+  ggplotly(p)
+})
+
+output$wordcloud <- renderWordcloud2({
+  text_df <- data.frame(car$Manufacturer)
+  text_df1 <- text_df 
+  text_df2<-count(text_df1, car.Manufacturer)
+  col <- brewer.pal(5, "Set3")
+  wordcloud2(text_df2, rotateRatio = 0, shape = 'circle', color = col)
+})
+
+
+output$selected_car_table <- renderDataTable({
+DF <- selectedcar()[,c(2,3,4:15)]
+DF[order(-DF$Horsepower),]
+})
+}
+shinyApp(ui = ui, server = server)
+
